@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>佈告欄</title>
+    <!-- 引入 React 與 ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- 引入 Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        notion: {
+                            text: '#37352f',
+                            gray: '#787774',
+                            lightBg: '#f7f7f5',
+                            border: '#e9e9e7',
+                            link: '#065fd4',
+                            highlight: '#fdf3c0' // 置頂高亮色
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'Helvetica', 'Arial', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #ffffff; color: #37352f; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d3d1cb; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #aeaca6; }
+        /* 載入動畫 */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #d3d1cb;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // ==========================================
+        // 1. 小工具：自動將文字中的網址轉成超連結
+        // ==========================================
+        const formatTextWithLinks = (text) => {
+            if (!text) return null;
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const parts = text.split(urlRegex);
+
+            return parts.map((part, index) => {
+                if (part.match(urlRegex)) {
+                    return (
+                        <a 
+                            key={index} 
+                            href={part} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-notion-link hover:underline break-all"
+                            onClick={(e) => e.stopPropagation()} 
+                        >
+                            {part}
+                        </a>
+                    );
+                }
+                return <span key={index}>{part.split('\n').map((line, i) => (
+                    <React.Fragment key={i}>
+                        {line}
+                        {i !== part.split('\n').length - 1 && <br />}
+                    </React.Fragment>
+                ))}</span>;
+            });
+        };
+
+        // ==========================================
+        // 2. React 元件：單張佈告欄卡片
+        // ==========================================
+        const AnnouncementCard = ({ data, onClick }) => {
+            const isText = data.type === 'text';
+            const shortDate = data.time.substring(0, 10);
+            const isPinned = data.isPinned;
+
+            return (
+                <div 
+                    onClick={() => onClick(data)}
+                    className={`group flex items-start gap-4 p-4 mb-3 border rounded-lg cursor-pointer transition-colors duration-200 
+                        ${isPinned ? 'bg-notion-highlight/30 border-yellow-200 hover:bg-notion-highlight/50' : 'bg-white border-notion-border hover:bg-notion-lightBg'}`}
+                >
+                    <div className="flex-shrink-0 w-14 h-14 sm:w-20 sm:h-20 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-100 relative">
+                        {isText ? (
+                            <span className="text-2xl sm:text-3xl">📄</span>
+                        ) : (
+                            <img src={data.imageUrl} alt="cover" className="w-full h-full object-cover" />
+                        )}
+                        {isPinned && (
+                            <div className="absolute top-0 left-0 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-br-md font-bold z-10">
+                                置頂
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex-grow min-w-0 flex flex-col justify-center min-h-[3.5rem] sm:min-h-[5rem]">
+                        <h3 className="text-sm sm:text-base font-semibold text-notion-text leading-tight mb-1 truncate flex items-center gap-1.5">
+                            {isPinned && <span className="text-red-500 text-xs flex-shrink-0">📌</span>}
+                            {isText ? (data.content && data.content.length > 30 ? data.content.substring(0, 30) + "..." : data.content || "📝 文字公告") : data.title}
+                        </h3>
+                        
+                        {!isText && (
+                            <p className="text-xs sm:text-sm text-notion-gray truncate mb-1.5">
+                                {data.description}
+                            </p>
+                        )}
+                        
+                        <div className="flex items-center justify-between mt-auto">
+                            <span className="text-xs text-notion-gray">{shortDate}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isPinned ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-notion-gray'}`}>
+                                {isText ? '完整查看 →' : '外部連結 ↗'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 3. React 元件：文字公告詳細頁面
+        // ==========================================
+        const TextDetailView = ({ data, onBack }) => {
+            return (
+                <div className="animate-fade-in">
+                    <button 
+                        onClick={onBack}
+                        className="mb-6 flex items-center text-sm text-notion-gray hover:text-notion-text transition-colors"
+                    >
+                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                        返回佈告欄
+                    </button>
+
+                    <div className="mb-8">
+                        <div className="flex items-center gap-2 mb-2">
+                            {data.isPinned && <span className="text-2xl bg-red-100 text-red-500 px-2 py-1 rounded-md text-sm font-bold mr-2">📌 置頂</span>}
+                            <h1 className="text-2xl font-bold text-notion-text">群組文字公告</h1>
+                        </div>
+                        <div className="text-sm text-notion-gray">
+                            發布時間：{data.time}
+                        </div>
+                    </div>
+
+                    <div className="prose max-w-none">
+                        <p className="text-base sm:text-lg text-notion-text leading-relaxed whitespace-pre-wrap">
+                            {formatTextWithLinks(data.content)}
+                        </p>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 4. 主應用程式 (App) - 包含真實的 API 抓取邏輯
+        // ==========================================
+        const App = () => {
+            const [selectedDoc, setSelectedDoc] = React.useState(null);
+            const [sortOrder, setSortOrder] = React.useState('newest');
+            
+            // 新增狀態管理：資料、載入中、錯誤訊息
+            const [boardData, setBoardData] = React.useState([]);
+            const [isLoading, setIsLoading] = React.useState(true);
+            const [errorMsg, setErrorMsg] = React.useState(null);
+
+            // 你的 GAS 網址 (做為後端 API)
+            const GAS_API_URL = "https://script.google.com/macros/s/AKfycby2nkvL2v7UcsyI9V_VruK_Uj7FN4s4R4lvCExxh9uaTrgJESH49ONY20PtxPUjdrYATg/exec";
+
+            React.useEffect(() => {
+                // 從目前網址抓取參數
+                const urlParams = new URLSearchParams(window.location.search);
+                const groupId = urlParams.get('id');
+                const viewTime = urlParams.get('view');
+
+                if (!groupId) {
+                    setErrorMsg("請從 LINE 群組內輸入「#佈告欄」取得專屬連結進入。");
+                    setIsLoading(false);
+                    return;
+                }
+
+                // 呼叫 GAS API 獲取資料
+                fetch(`${GAS_API_URL}?id=${groupId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            setErrorMsg(data.error);
+                        } else {
+                            setBoardData(data);
+                            
+                            // 檢查是否帶有 view 參數，若有則自動開啟對應的純文字公告
+                            if (viewTime) {
+                                // 由於網址經過 encodeURIComponent，比對時解碼確保一致
+                                const targetDoc = data.find(item => item.time === decodeURIComponent(viewTime) && item.type === 'text');
+                                if (targetDoc) {
+                                    setSelectedDoc(targetDoc);
+                                }
+                            }
+                        }
+                        setIsLoading(false);
+                    })
+                    .catch(err => {
+                        setErrorMsg("無法連接至資料庫，請稍後再試。");
+                        setIsLoading(false);
+                    });
+            }, []);
+
+            const handleCardClick = (data) => {
+                if (data.type === 'text') {
+                    setSelectedDoc(data);
+                    window.scrollTo(0, 0);
+                } else {
+                    window.open(data.url, '_blank');
+                }
+            };
+
+            const sortedData = React.useMemo(() => {
+                return [...boardData].sort((a, b) => {
+                    if (a.isPinned && !b.isPinned) return -1;
+                    if (!a.isPinned && b.isPinned) return 1;
+
+                    const timeA = new Date(a.time.replace(/-/g, '/')).getTime();
+                    const timeB = new Date(b.time.replace(/-/g, '/')).getTime();
+                    
+                    return sortOrder === 'newest' ? timeB - timeA : timeA - timeB;
+                });
+            }, [boardData, sortOrder]);
+
+            // ================= 畫面渲染 =================
+            return (
+                <div className="min-h-screen font-sans">
+                    <header className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-notion-border z-10">
+                        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
+                            <div className="font-semibold flex items-center gap-2 text-notion-text">
+                                <span className="text-xl">📚</span>
+                                佈告欄
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-2xl mx-auto px-4 py-8">
+                        {/* 狀態 1：載入中 */}
+                        {isLoading && (
+                            <div className="flex flex-col items-center justify-center py-20 text-notion-gray">
+                                <div className="loader mb-4"></div>
+                                <p>正在載入公告資料...</p>
+                            </div>
+                        )}
+
+                        {/* 狀態 2：錯誤或缺乏參數 */}
+                        {!isLoading && errorMsg && (
+                            <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+                                <div className="text-4xl mb-4">⚠️</div>
+                                <h2 className="text-lg font-semibold text-notion-text mb-2">無法顯示佈告欄</h2>
+                                <p className="text-notion-gray max-w-sm">{errorMsg}</p>
+                            </div>
+                        )}
+
+                        {/* 狀態 3：正常顯示 (無錯誤且載入完畢) */}
+                        {!isLoading && !errorMsg && (
+                            selectedDoc ? (
+                                <TextDetailView 
+                                    data={selectedDoc} 
+                                    onBack={() => setSelectedDoc(null)} 
+                                />
+                            ) : (
+                                <div className="animate-fade-in">
+                                    <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                        <div className="flex items-center gap-2">
+                                            <h2 className="text-lg font-semibold text-notion-text">全部公告</h2>
+                                            <span className="text-xs text-notion-gray bg-notion-lightBg border border-notion-border px-2 py-0.5 rounded-full">共 {boardData.length} 筆</span>
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-1.5 text-sm text-notion-gray bg-white border border-notion-border px-2.5 py-1.5 rounded-md shadow-sm">
+                                            <svg className="w-4 h-4 text-notion-gray" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"></path></svg>
+                                            <select 
+                                                value={sortOrder}
+                                                onChange={(e) => setSortOrder(e.target.value)}
+                                                className="bg-transparent border-none outline-none cursor-pointer hover:text-notion-text focus:ring-0 p-0"
+                                            >
+                                                <option value="newest">最新發布</option>
+                                                <option value="oldest">最早發布</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        {boardData.length === 0 ? (
+                                            <div className="text-center py-10 text-notion-gray border border-dashed border-notion-border rounded-lg">
+                                                本群組目前尚無公告
+                                            </div>
+                                        ) : (
+                                            sortedData.map((item) => (
+                                                <AnnouncementCard 
+                                                    key={item.id} 
+                                                    data={item} 
+                                                    onClick={handleCardClick} 
+                                                />
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            )
+                        )}
+                    </main>
+
+                    <style dangerouslySetInnerHTML={{__html: `
+                        @keyframes fadeIn {
+                            from { opacity: 0; transform: translateY(5px); }
+                            to { opacity: 1; transform: translateY(0); }
+                        }
+                        .animate-fade-in {
+                            animation: fadeIn 0.3s ease-out forwards;
+                        }
+                    `}} />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
