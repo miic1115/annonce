@@ -2,7 +2,8 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 🔥 新增 maximum-scale=1.0, user-scalable=0 解決手機點擊輸入框畫面自動放大的問題 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
     <title>群組佈告欄</title>
     <!-- 引入 React 與 ReactDOM -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -80,7 +81,8 @@
         const Icons = {
             More: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"/></svg>,
             ArrowLeft: () => <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>,
-            Close: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            Close: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>,
+            Plus: () => <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
         };
 
         const formatTextWithLinks = (text) => {
@@ -174,9 +176,10 @@
                     {/* 中排：標題與內文 */}
                     <div className="mb-3">
                         <h3 className="text-base font-semibold text-notion-text mb-1 leading-snug">
-                            {isText ? (data.content || "未命名公告").split('\n')[0].substring(0, 40) : data.title}
+                            {/* 🔥 修改 1：不再擷取內文當標題，直接印出真實標題 */}
+                            {data.title || "未命名公告"}
                         </h3>
-                        <p className="text-sm text-notion-gray line-clamp-2">
+                        <p className="text-sm text-notion-gray line-clamp-2 mt-1">
                             {isText ? data.content : data.description}
                         </p>
                     </div>
@@ -207,11 +210,23 @@
             // 閱讀頁面的專屬選單狀態
             const [isDetailMenuOpen, setIsDetailMenuOpen] = React.useState(false);
 
-            // Modal 狀態
+            // Modal 狀態 (🔥 修改 2：拆分標題與內文狀態)
             const [modalConfig, setModalConfig] = React.useState({ isOpen: false, type: null, doc: null });
-            const [editInput, setEditInput] = React.useState('');
+            const [editTitle, setEditTitle] = React.useState('');
+            const [editContent, setEditContent] = React.useState('');
             const [tagInput, setTagInput] = React.useState('');
             const [currentTags, setCurrentTags] = React.useState([]);
+
+            // 🔥 新增：創建佈告欄的狀態
+            const [isCreating, setIsCreating] = React.useState(false);
+            const [createType, setCreateType] = React.useState('text'); // 'text' 或 'link'
+            const [createTitle, setCreateTitle] = React.useState('');
+            const [createContent, setCreateContent] = React.useState('');
+            const [createUrl, setCreateUrl] = React.useState('');
+            const [createTags, setCreateTags] = React.useState([]);
+            const [createTagInput, setCreateTagInput] = React.useState('');
+            const [createIsPinned, setCreateIsPinned] = React.useState(false);
+            const [isSubmitting, setIsSubmitting] = React.useState(false);
             
             // 從網址獲取群組 ID 與跳轉參數
             const urlParams = new URLSearchParams(window.location.search);
@@ -232,13 +247,11 @@
                     const itemUrl = item.url || "";
                     const isTextMode = itemUrl.includes("view=");
                     
-                    // 處理複數標籤 (字串轉陣列)
                     let parsedTags = [];
                     if (item.tag && typeof item.tag === 'string') {
                         parsedTags = item.tag.split(',').map(t => t.trim()).filter(t => t !== '');
                     }
 
-                    // 處理時間顯示，去除 Supabase 可能附加的 T 與時區
                     let displayTime = item.time || "";
                     if (displayTime.includes('T')) {
                         const d = new Date(displayTime);
@@ -262,7 +275,6 @@
                 });
             };
 
-            // 光速抓取資料
             const fetchData = async () => {
                 try {
                     const response = await fetch(`${SUPA_URL}/rest/v1/${TABLE_NAME}?source_id=eq.${groupId}&order=id.desc`, {
@@ -275,7 +287,6 @@
                     const formattedData = formatSupabaseData(rawData);
                     setBoardData(formattedData);
                     
-                    // 🔥 修復內文頁跳轉 Bug：直接比對網址參數
                     const viewTime = urlParams.get('view');
                     if (viewTime) {
                         const targetDoc = formattedData.find(item => 
@@ -293,7 +304,8 @@
             const openModal = (type, doc) => {
                 setModalConfig({ isOpen: true, type, doc });
                 if (type === 'edit') {
-                    setEditInput(doc.type === 'text' ? doc.content : doc.title);
+                    setEditTitle(doc.title || '');
+                    setEditContent(doc.content || ''); // 用於文字公告的內文
                 } else if (type === 'tag') {
                     setCurrentTags(doc.tags || []);
                     setTagInput('');
@@ -319,20 +331,22 @@
                     } catch(e) { console.error(e); fetchData(); }
 
                 } else if (type === 'edit') {
-                    const newContentTitle = editInput;
-                    const payload = doc.type === 'text' ? { content: newContentTitle } : { title: newContentTitle };
+                    // 🔥 修改 2：分離標題跟內文的 Payload 更新
+                    const payload = doc.type === 'text' 
+                        ? { title: editTitle, content: editContent } 
+                        : { title: editTitle };
 
                     setBoardData(prev => prev.map(item => item.id === docId ? { 
                         ...item, 
-                        content: item.type === 'text' ? newContentTitle : item.content,
-                        title: item.type === 'link' ? newContentTitle : item.title
+                        content: item.type === 'text' ? editContent : item.content,
+                        title: editTitle
                     } : item));
                     
                     if (selectedDoc && selectedDoc.id === docId) {
                         setSelectedDoc(prev => ({ 
                             ...prev, 
-                            content: doc.type === 'text' ? newContentTitle : prev.content,
-                            title: doc.type === 'link' ? newContentTitle : prev.title
+                            content: doc.type === 'text' ? editContent : prev.content,
+                            title: editTitle
                         }));
                     }
                     closeModal();
@@ -355,7 +369,67 @@
                 }
             };
 
-            // 列表卡片的快捷操作
+            // 🔥 新增：處理送出新增公告
+            const handleCreateAnnouncement = async () => {
+                if (!createTitle.trim()) return alert("請輸入標題！");
+                if (createType === 'text' && !createContent.trim()) return alert("請輸入內文！");
+                if (createType === 'link' && !createUrl.trim()) return alert("請輸入網址連結！");
+
+                setIsSubmitting(true);
+                
+                // 產生資料庫格式的本地時間字串
+                const d = new Date();
+                const timeStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+                
+                let payload = {
+                    time: timeStr,
+                    title: createTitle,
+                    source_id: groupId,
+                    is_pinned: createIsPinned,
+                    tag: createTags.join(', ')
+                };
+
+                const baseUrl = window.location.origin + window.location.pathname;
+
+                if (createType === 'text') {
+                    payload.url = `${baseUrl}?id=${groupId}&view=${encodeURIComponent(timeStr)}`;
+                    payload.content = createContent;
+                    payload.image_url = "https://images.unsplash.com/photo-1588600878108-578307a3cc9d?q=80&w=800&auto=format&fit=crop";
+                } else {
+                    payload.url = createUrl;
+                    payload.content = "網頁連結分享"; // 預設描述
+                    payload.image_url = "https://images.unsplash.com/photo-1588600878108-578307a3cc9d?q=80&w=800&auto=format&fit=crop";
+                }
+
+                try {
+                    const response = await fetch(`${SUPA_URL}/rest/v1/${TABLE_NAME}`, {
+                        method: 'POST',
+                        headers: supaHeaders,
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) throw new Error("寫入失敗");
+
+                    // 初始化表單
+                    setCreateType('text');
+                    setCreateTitle('');
+                    setCreateContent('');
+                    setCreateUrl('');
+                    setCreateTags([]);
+                    setCreateIsPinned(false);
+                    setIsCreating(false);
+                    
+                    await fetchData(); // 重新抓取資料更新列表
+                    window.scrollTo(0, 0);
+
+                } catch (e) {
+                    console.error("Create error:", e);
+                    alert("新增公告失敗，請稍後再試。");
+                } finally {
+                    setIsSubmitting(false);
+                }
+            };
+
             const handleCardAction = async (actionType, doc) => {
                 if (actionType === 'pin') {
                     const docId = doc.id;
@@ -370,7 +444,6 @@
                 }
             };
 
-            // 內文閱讀頁的操作
             const handleDetailAction = async (actionType) => {
                 setIsDetailMenuOpen(false);
                 if (actionType === 'pin') {
@@ -396,19 +469,27 @@
                 }
             };
 
-            const handleAddTag = (e) => {
-                if (e.key === 'Enter' && tagInput.trim() !== '') {
+            const handleAddTag = (e, isCreatingView = false) => {
+                const targetValue = isCreatingView ? createTagInput : tagInput;
+                if (e.key === 'Enter' && targetValue.trim() !== '') {
                     e.preventDefault();
-                    const newTag = tagInput.trim();
-                    if (!currentTags.includes(newTag)) {
-                        setCurrentTags([...currentTags, newTag]);
+                    const newTag = targetValue.trim();
+                    if (isCreatingView) {
+                        if (!createTags.includes(newTag)) setCreateTags([...createTags, newTag]);
+                        setCreateTagInput('');
+                    } else {
+                        if (!currentTags.includes(newTag)) setCurrentTags([...currentTags, newTag]);
+                        setTagInput('');
                     }
-                    setTagInput('');
                 }
             };
 
-            const removeTag = (tagToRemove) => {
-                setCurrentTags(currentTags.filter(t => t !== tagToRemove));
+            const removeTag = (tagToRemove, isCreatingView = false) => {
+                if (isCreatingView) {
+                    setCreateTags(createTags.filter(t => t !== tagToRemove));
+                } else {
+                    setCurrentTags(currentTags.filter(t => t !== tagToRemove));
+                }
             };
 
             const allUniqueTags = React.useMemo(() => {
@@ -440,6 +521,15 @@
                             <div className="font-semibold flex items-center gap-2 text-notion-text">
                                 📚 群組佈告欄
                             </div>
+                            {/* 🔥 新增公告的按鈕，僅在列表頁顯示 */}
+                            {!selectedDoc && !isCreating && (
+                                <button 
+                                    onClick={() => setIsCreating(true)}
+                                    className="flex items-center text-sm font-medium text-gray-700 bg-white border border-gray-200 px-3 py-1.5 rounded-md shadow-sm hover:bg-gray-50 transition-colors"
+                                >
+                                    <Icons.Plus />新增公告
+                                </button>
+                            )}
                         </div>
                     </header>
 
@@ -454,6 +544,105 @@
                                 <div className="text-4xl mb-4">⚠️</div>
                                 <h2 className="text-lg font-semibold text-notion-text mb-2">無法顯示佈告欄</h2>
                                 <p className="text-notion-gray max-w-sm">{errorMsg}</p>
+                            </div>
+                        ) : isCreating ? (
+                            /* 🔥 新增：獨立的新增佈告全螢幕畫面 */
+                            <div className="animate-fade-in bg-white pb-10">
+                                <div className="flex justify-between items-center mb-6 border-b border-notion-border pb-4">
+                                    <button 
+                                        onClick={() => setIsCreating(false)}
+                                        className="flex items-center text-sm font-medium text-notion-gray hover:text-notion-text transition-colors px-2 py-1 -ml-2 rounded hover:bg-notion-lightBg"
+                                    >
+                                        <Icons.ArrowLeft /> 返回列表
+                                    </button>
+                                    <h2 className="text-lg font-bold text-notion-text">新增公告</h2>
+                                    <div className="w-16"></div> {/* 平衡排版用 */}
+                                </div>
+
+                                <div className="space-y-6">
+                                    {/* 類型選擇 */}
+                                    <div>
+                                        <label className="block text-sm font-bold text-notion-text mb-3">公告類型</label>
+                                        <div className="flex gap-6">
+                                            <label className="flex items-center gap-2 cursor-pointer group">
+                                                <input type="radio" checked={createType === 'text'} onChange={() => setCreateType('text')} className="w-4 h-4 text-gray-800 border-gray-300 focus:ring-gray-800" />
+                                                <span className="text-base text-gray-700 font-medium group-hover:text-black">📝 文字公告</span>
+                                            </label>
+                                            <label className="flex items-center gap-2 cursor-pointer group">
+                                                <input type="radio" checked={createType === 'link'} onChange={() => setCreateType('link')} className="w-4 h-4 text-gray-800 border-gray-300 focus:ring-gray-800" />
+                                                <span className="text-base text-gray-700 font-medium group-hover:text-black">🔗 連結公告</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    {/* 標題 */}
+                                    <div>
+                                        <label className="block text-sm font-bold text-notion-text mb-2">標題 <span className="text-red-500">*</span></label>
+                                        <input 
+                                            type="text" value={createTitle} onChange={e => setCreateTitle(e.target.value)} 
+                                            className="w-full text-base p-3.5 border border-notion-border rounded-lg bg-notion-lightBg focus:bg-white focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-shadow" 
+                                            placeholder="請輸入公告標題..." 
+                                        />
+                                    </div>
+
+                                    {/* 內文或網址 */}
+                                    {createType === 'text' ? (
+                                        <div>
+                                            <label className="block text-sm font-bold text-notion-text mb-2">內文 <span className="text-red-500">*</span></label>
+                                            <textarea 
+                                                value={createContent} onChange={e => setCreateContent(e.target.value)} rows="8" 
+                                                className="w-full text-base p-3.5 border border-notion-border rounded-lg bg-notion-lightBg focus:bg-white focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 resize-y transition-shadow" 
+                                                placeholder="請輸入佈告欄的詳細內容..."
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <label className="block text-sm font-bold text-notion-text mb-2">連結網址 <span className="text-red-500">*</span></label>
+                                            <input 
+                                                type="url" value={createUrl} onChange={e => setCreateUrl(e.target.value)} 
+                                                className="w-full text-base p-3.5 border border-notion-border rounded-lg bg-notion-lightBg focus:bg-white focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-shadow" 
+                                                placeholder="例如：https://..." 
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* 標籤 */}
+                                    <div>
+                                        <label className="block text-sm font-bold text-notion-text mb-2">分類標籤</label>
+                                        <div className="flex flex-wrap gap-2 mb-2 p-3 border border-notion-border rounded-lg bg-notion-lightBg min-h-[46px]">
+                                            {createTags.length === 0 && <span className="text-sm text-notion-gray flex items-center px-1">目前無標籤</span>}
+                                            {createTags.map(tag => (
+                                                <span key={tag} className="flex items-center gap-1 text-sm bg-white border border-notion-border px-2 py-1 rounded">
+                                                    {tag}
+                                                    <button onClick={() => removeTag(tag, true)} className="text-notion-gray hover:text-notion-red transition-colors"><Icons.Close /></button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <input 
+                                            type="text" value={createTagInput} onChange={e => setCreateTagInput(e.target.value)} onKeyDown={e => handleAddTag(e, true)} 
+                                            className="w-full text-base p-3 border border-notion-border rounded-lg focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-shadow" 
+                                            placeholder="輸入標籤後按 Enter 加入" maxLength={15} 
+                                        />
+                                    </div>
+
+                                    {/* 置頂開關 */}
+                                    <div className="pt-2">
+                                        <label className="flex items-center gap-3 cursor-pointer w-fit group">
+                                            <input type="checkbox" checked={createIsPinned} onChange={e => setCreateIsPinned(e.target.checked)} className="w-4 h-4 rounded border-gray-300 text-gray-800 focus:ring-gray-800" />
+                                            <span className="text-base font-semibold text-gray-700 group-hover:text-black">設為置頂公告</span>
+                                        </label>
+                                    </div>
+
+                                    {/* 送出按鈕 */}
+                                    <div className="pt-8 flex justify-end gap-3">
+                                        <button onClick={() => setIsCreating(false)} className="px-6 py-2.5 text-base font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                                            取消
+                                        </button>
+                                        <button onClick={handleCreateAnnouncement} disabled={isSubmitting} className="px-6 py-2.5 text-base font-medium text-white bg-gray-900 rounded-lg hover:bg-black transition-colors disabled:opacity-50">
+                                            {isSubmitting ? '正在發布...' : '確認發布'}
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         ) : selectedDoc ? (
                             <div className="animate-fade-in bg-white">
@@ -504,7 +693,8 @@
                                             <span key={tag} className="text-xs px-1.5 py-0.5 bg-notion-lightBg text-notion-gray rounded border border-notion-border">{tag}</span>
                                         ))}
                                     </div>
-                                    <h1 className="text-2xl font-bold text-notion-text mb-2">群組文字公告</h1>
+                                    {/* 🔥 修改 1：閱讀頁同步真實標題 */}
+                                    <h1 className="text-2xl font-bold text-notion-text mb-2">{selectedDoc.title}</h1>
                                     <p className="text-sm text-notion-gray">發布於 {selectedDoc.time}</p>
                                 </div>
 
@@ -536,10 +726,11 @@
                                         ))}
                                     </div>
                                     
+                                    {/* 🔥 解決：下拉選單也套用 text-base 防止手機版放大 */}
                                     <select 
                                         value={sortOrder}
                                         onChange={(e) => setSortOrder(e.target.value)}
-                                        className="text-xs text-notion-gray bg-transparent border-none focus:outline-none cursor-pointer hover:text-notion-text"
+                                        className="text-base sm:text-sm text-notion-gray bg-transparent border-none focus:outline-none cursor-pointer hover:text-notion-text py-0"
                                     >
                                         <option value="newest">最新發布</option>
                                         <option value="oldest">最早發布</option>
@@ -585,47 +776,54 @@
 
                                 <div className="p-5">
                                     {modalConfig.type === 'delete' && (
-                                        <p className="text-sm text-notion-text mb-2">確定要刪除這篇公告嗎？此動作無法復原。</p>
+                                        <p className="text-base sm:text-sm text-notion-text mb-2">確定要刪除這篇公告嗎？此動作無法復原。</p>
                                     )}
 
                                     {modalConfig.type === 'external_link' && (
                                         <div>
-                                            <p className="text-sm text-notion-gray mb-4">即將前往外部網站：</p>
-                                            <a href={modalConfig.doc.url} target="_blank" rel="noopener noreferrer" className="text-sm text-notion-link break-all hover:underline block p-3 bg-notion-lightBg rounded border border-notion-border">
+                                            <p className="text-base sm:text-sm text-notion-gray mb-4">即將前往外部網站：</p>
+                                            <a href={modalConfig.doc.url} target="_blank" rel="noopener noreferrer" className="text-base sm:text-sm text-notion-link break-all hover:underline block p-3 bg-notion-lightBg rounded border border-notion-border">
                                                 {modalConfig.doc.url}
                                             </a>
                                         </div>
                                     )}
 
                                     {modalConfig.type === 'edit' && (
-                                        <div>
-                                            {modalConfig.doc.type === 'text' ? (
-                                                <textarea 
-                                                    value={editInput}
-                                                    onChange={(e) => setEditInput(e.target.value)}
-                                                    rows="6"
-                                                    className="w-full text-sm p-3 border border-notion-border rounded bg-notion-lightBg focus:bg-white focus:outline-none focus:border-gray-400 resize-y"
-                                                    placeholder="輸入內容..."
-                                                />
-                                            ) : (
+                                        <div className="space-y-4">
+                                            {/* 🔥 修改 2：分離標題編輯 */}
+                                            <div>
+                                                <label className="block text-sm font-medium text-notion-text mb-1">標題</label>
                                                 <input 
                                                     type="text" 
-                                                    value={editInput}
-                                                    onChange={(e) => setEditInput(e.target.value)}
-                                                    className="w-full text-sm p-3 border border-notion-border rounded bg-notion-lightBg focus:bg-white focus:outline-none focus:border-gray-400"
+                                                    value={editTitle}
+                                                    onChange={(e) => setEditTitle(e.target.value)}
+                                                    className="w-full text-base p-3 border border-notion-border rounded bg-notion-lightBg focus:bg-white focus:outline-none focus:border-gray-400"
                                                     placeholder="輸入標題..."
                                                 />
+                                            </div>
+                                            {/* 🔥 判斷如果是文字公告，才多顯示內文編輯區 */}
+                                            {modalConfig.doc.type === 'text' && (
+                                                <div>
+                                                    <label className="block text-sm font-medium text-notion-text mb-1">內文</label>
+                                                    <textarea 
+                                                        value={editContent}
+                                                        onChange={(e) => setEditContent(e.target.value)}
+                                                        rows="6"
+                                                        className="w-full text-base p-3 border border-notion-border rounded bg-notion-lightBg focus:bg-white focus:outline-none focus:border-gray-400 resize-y"
+                                                        placeholder="輸入內容..."
+                                                    />
+                                                </div>
                                             )}
                                         </div>
                                     )}
 
                                     {modalConfig.type === 'tag' && (
                                         <div>
-                                            <p className="text-xs text-notion-gray mb-2">已加入的標籤：</p>
+                                            <p className="text-sm text-notion-gray mb-2">已加入的標籤：</p>
                                             <div className="flex flex-wrap gap-2 mb-4 p-3 border border-notion-border rounded bg-notion-lightBg min-h-[42px]">
-                                                {currentTags.length === 0 && <span className="text-sm text-notion-gray">目前無標籤</span>}
+                                                {currentTags.length === 0 && <span className="text-base sm:text-sm text-notion-gray">目前無標籤</span>}
                                                 {currentTags.map(tag => (
-                                                    <span key={tag} className="flex items-center gap-1 text-sm bg-white border border-notion-border px-2 py-0.5 rounded">
+                                                    <span key={tag} className="flex items-center gap-1 text-base sm:text-sm bg-white border border-notion-border px-2 py-0.5 rounded">
                                                         {tag}
                                                         <button onClick={() => removeTag(tag)} className="text-notion-gray hover:text-notion-red">
                                                             <Icons.Close />
@@ -633,14 +831,14 @@
                                                     </span>
                                                 ))}
                                             </div>
-                                            <p className="text-xs text-notion-gray mb-1">新增標籤 (輸入後按 Enter)</p>
+                                            <p className="text-sm text-notion-gray mb-1">新增標籤 (輸入後按 Enter)</p>
                                             <input 
                                                 type="text" 
                                                 value={tagInput}
                                                 onChange={(e) => setTagInput(e.target.value)}
                                                 onKeyDown={handleAddTag}
                                                 placeholder="例如：會議、急件..."
-                                                className="w-full text-sm p-2 border border-notion-border rounded focus:outline-none focus:border-gray-400"
+                                                className="w-full text-base p-2.5 border border-notion-border rounded focus:outline-none focus:border-gray-400"
                                                 maxLength={15}
                                             />
                                         </div>
@@ -648,19 +846,19 @@
                                 </div>
 
                                 <div className="px-5 py-3 border-t border-notion-border bg-notion-lightBg/30 flex justify-end gap-2">
-                                    <button onClick={closeModal} className="px-4 py-1.5 text-sm font-medium text-notion-text bg-white border border-notion-border rounded hover:bg-gray-50 transition-colors">
+                                    <button onClick={closeModal} className="px-4 py-2 text-base sm:text-sm font-medium text-notion-text bg-white border border-notion-border rounded hover:bg-gray-50 transition-colors">
                                         取消
                                     </button>
                                     {modalConfig.type === 'delete' ? (
-                                        <button onClick={handleSaveModal} className="px-4 py-1.5 text-sm font-medium text-white bg-notion-red rounded hover:bg-red-600 transition-colors">
+                                        <button onClick={handleSaveModal} className="px-4 py-2 text-base sm:text-sm font-medium text-white bg-notion-red rounded hover:bg-red-600 transition-colors">
                                             確認刪除
                                         </button>
                                     ) : modalConfig.type === 'external_link' ? (
-                                        <button onClick={closeModal} className="px-4 py-1.5 text-sm font-medium text-white bg-notion-text rounded hover:bg-gray-800 transition-colors">
+                                        <button onClick={closeModal} className="px-4 py-2 text-base sm:text-sm font-medium text-white bg-notion-text rounded hover:bg-gray-800 transition-colors">
                                             我知道了
                                         </button>
                                     ) : (
-                                        <button onClick={handleSaveModal} className="px-4 py-1.5 text-sm font-medium text-white bg-notion-text rounded hover:bg-gray-800 transition-colors">
+                                        <button onClick={handleSaveModal} className="px-4 py-2 text-base sm:text-sm font-medium text-white bg-notion-text rounded hover:bg-gray-800 transition-colors">
                                             儲存
                                         </button>
                                     )}
